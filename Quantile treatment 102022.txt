@@ -1,0 +1,113 @@
+set.seed(123)
+
+n <- 200
+
+x1 <- cbind(rnorm(n,mean=1,sd=0.5),rnorm(n,mean=3,sd=1.5))
+x2 <- cbind(rnorm(n,mean=1.5,sd=0.5),rnorm(n,mean=2,sd=1.5))
+
+nx <- nrow(x1)
+
+beta0 <- c(1.8,-3.2)
+beta1 <- c(2,1.9)
+
+e <- cbind(rnorm(n,mean=0,sd=1),rnorm(n,mean=0,sd=1.5))
+
+y0 <- 12+5*x1[,1]^2+x2[,1]*beta0[1]+x2[,2]*beta0[2]+e[,1]
+y1 <- 2-3*x1[,1]^2+x2[,1]*beta1[1]+x2[,2]*beta1[2]+e[,2]
+
+z <- array(rnorm(n,mean=0.5,sd=2),dim=c(nx,1))
+
+u <- array(rnorm(n,mean=0,sd=1),dim=c(nx,1))
+
+gamma <- c(0.8,-2.1,2,1.5,3)
+
+w <- (-1.5+x1[,1]*gamma[1]+x1[,2]*gamma[2]+x2[,1]*gamma[3]+x2[,2]*gamma[4]+z*gamma[5]>=u)
+
+y <- y1*w+y0*(1-w)
+
+kf<-function(v){
+apply(exp(-v^2/2)/sqrt(2*pi),1,prod)
+}
+ccdf1<-function(x1,y1,x2,y2,h1,h2){
+yr1<-nrow(y1)
+yr2<-nrow(y2)
+v1<-kronecker(x1,array(1,dim=c(yr1,1)))
+v2<-kronecker(x2,array(1,dim=c(yr2,1)))
+h1<-kronecker(h1,array(1,dim=dim(v1)))
+h2<-kronecker(h2,array(1,dim=dim(v2)))
+out<-sum(kf((y1-v1)/h1)*pnorm((v2-y2)/h2))/sum(kf((y1-v1)/h1))
+return(out)
+}
+
+nw<-length(w)
+
+v<-rep(0,nw)
+hw<-1.06*sd(w)/n^(.2)
+hz<-1.06*sd(z)/n^(.2)
+for (i in 1:nw){
+v[i]<-ccdf1(z[i,1],z,w[i,1],w,hz,hw)
+}
+
+G<-function(y0,x10,x20,w0,x1g,x2g,hx1g,hx2g,hyg,hvg){
+out<-rep(0,nw)
+for (i in 1:nw){
+xr1<-nrow(x1g)
+xr2<-nrow(x2g)
+v1<-kronecker(t(x10),array(1,dim=c(xr1,1)))
+v2<-kronecker(t(x20),array(1,dim=c(xr2,1)))
+vi<-kronecker(v[i],array(1,dim=c(length(v),1)))
+hx1n<-kronecker(t(hx1g),array(1,dim=c(xr1,1)))
+hx2n<-kronecker(t(hx2g),array(1,dim=c(xr2,1)))
+hvn<-kronecker(hvg,array(1,dim=dim(vi)))
+hyn<-kronecker(hyg,array(1,dim=dim(y)))
+out[i]<-sum(kf((v1-x1g)/hx1n)*kf((v2-x2g)/hx2n)*kf((vi-v)/hvn)*pnorm((y0-y)/hyn)*(w==w0))/sum(kf((v1-x1g)/hx1n)*kf((v2-x2)/hx2n)*kf((vi-v)/hvn)*(w==w0))
+}
+return(mean(out))
+}
+
+x10m <- apply(x1,2,mean)
+x20m <- apply(x2,2,mean)
+
+
+hx1<-1.06*apply(x1,2,sd)/n^(.2)
+hx2<-1.06*apply(x2,2,sd)/n^(.2)
+hv<-1.06*sd(v)/n^(.2)
+hy<-1.06*sd(y)/n^(.2)
+
+J <- seq(-500,500,by=0.1)
+nJ <- length(J)
+G0<-rep(0,nJ)
+G1<-rep(0,nJ)
+
+tau <- 0.5
+
+for (j in 1:nJ){
+G0[1] <- G(J[1],x10=x10m,x20=x20m,w0=0,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)-tau
+G1[1] <- G(J[1],x10=x10m,x20=x20m,w0=1,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)-tau
+if(G0[1]>0) {print("error: left end G0") 
+break}
+if(G1[1]>0) {print("error: left end G1")
+break}
+if (j>1) {if(!(G0[j-1]>0))
+G0[j] <- G(J[j],x10=x10m,x20=x20m,w0=0,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)-tau
+else
+G0[j] <- 2
+if(!(G1[j-1]>0))
+G1[j] <- G(J[j],x10=x10m,x20=x20m,w0=1,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)-tau
+else
+G1[j] <- 2}
+if(G0[j]>0 && !(G0[j]==2)) q0<-J[j-1]
+if(G1[j]>0 && !(G1[j]==2)) q1<-J[j-1]
+if(G0[j]==2 && G1[j]==2) break
+}
+
+
+Treat <- q1-q0
+
+
+#q0 <- J[min(which(G0>0))]
+#q1 <- J[min(which(G1>0))]
+
+#q0 <- uniroot(G,c(-1000,1000),tol=1e-6,x10=x10m,x20=x20m,w0=0,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)
+#q1 <- uniroot(G,c(-1000,1000),tol=1e-6,x10=x10m,x20=x20m,w0=1,x1g=x1,x2g=x2,hx1g=hx1,hx2g=hx2,hyg=hy,hvg=hv)
+
